@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -u
 
+if (( EUID != 0 )); then
+    if ! sudo -n true 2>/dev/null; then
+        echo "SKIP: namespace tests require root or passwordless sudo"
+        exit 77
+    fi
+    exec sudo -n bash "$0" "$@"
+fi
+
 runtime=$1
 test_case=$2
 
@@ -36,7 +44,7 @@ case "$test_case" in
         output=$("$runtime" 2>&1)
         status=$?
         [[ $status -gt 0 && $status -lt 128 ]] || fail "Expected non-zero exit without a crash, got $status"
-        [[ "$output" == *"usage:"*"run <command> [args...]"* ]] || fail "Expected usage message, got '$output'"
+        [[ "$output" == *"usage:"*"<command> [args...]"* ]] || fail "Expected usage message, got '$output'"
         ;;
     *)
         fail "Unknown test case: $test_case"

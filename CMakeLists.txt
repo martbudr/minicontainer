@@ -47,6 +47,17 @@ if(BUILD_TESTING)
                 "$<TARGET_FILE:minicontainer>" "${test_case}")
         set_tests_properties(milestone1.${test_case} PROPERTIES
             LABELS "milestone1;process_execution"
+            SKIP_RETURN_CODE 77
+            TIMEOUT 10)
+    endforeach()
+    foreach(test_case IN ITEMS hostname pid1 proc namespaces host_unchanged invalid_hostname)
+        add_test(NAME milestone2.${test_case}
+            COMMAND "${BASH_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_namespace_isolation.sh"
+                "$<TARGET_FILE:minicontainer>" "${test_case}")
+        set_tests_properties(milestone2.${test_case} PROPERTIES
+            LABELS "milestone2;namespace_isolation"
+            SKIP_RETURN_CODE 77
             TIMEOUT 10)
     endforeach()
 endif()

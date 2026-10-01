@@ -35,15 +35,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(minicontainer
         src/main.cpp
+        src/control.cpp
 )
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(test_workload tests/workload.cpp)
     find_program(BASH_EXECUTABLE bash REQUIRED)
     set(TEST_ROOTFS "${CMAKE_CURRENT_BINARY_DIR}/test-rootfs")
     add_test(NAME rootfs.prepare COMMAND "${BASH_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/prepare_rootfs.sh"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/create_rootfs.sh" "${TEST_ROOTFS}")
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/create_rootfs.sh" "${TEST_ROOTFS}"
+        "$<TARGET_FILE:test_workload>")
     set_tests_properties(rootfs.prepare PROPERTIES FIXTURES_SETUP rootfs TIMEOUT 30)
     foreach(test_case IN ITEMS basic_execution arguments exit_code invalid_executable invalid_invocation)
         add_test(NAME milestone1.${test_case}
@@ -74,5 +77,13 @@ if(BUILD_TESTING)
         set_tests_properties(milestone3.${test_case} PROPERTIES
             LABELS "milestone3;rootfs" FIXTURES_REQUIRED rootfs
             SKIP_RETURN_CODE 77 TIMEOUT 10)
+    endforeach()
+    foreach(test_case IN ITEMS limits cpu memory pids sigint sigterm escalation parent_death zombies descendants signal_exit invalid_limits startup_failure)
+        add_test(NAME milestone4.${test_case} COMMAND "${BASH_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_control.sh"
+            "$<TARGET_FILE:minicontainer>" "${test_case}" "${TEST_ROOTFS}")
+        set_tests_properties(milestone4.${test_case} PROPERTIES
+            LABELS "milestone4;control" FIXTURES_REQUIRED rootfs
+            SKIP_RETURN_CODE 77 TIMEOUT 20)
     endforeach()
 endif()

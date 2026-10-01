@@ -19,15 +19,15 @@ case "$test_case" in
         [[ "$actual" == box ]]
         ;;
     pid1)
-        "$runtime" run "$rootfs" /bin/bash -c '[[ $$ -eq 1 ]]'
+        "$runtime" run "$rootfs" /bin/bash -c '[[ $$ -eq 2 && $PPID -eq 1 ]]'
         ;;
     proc)
         "$runtime" run "$rootfs" /bin/bash -c '
             processes=(/proc/[0-9]*)
-            [[ ${#processes[@]} -eq 1 && ${processes[0]} == /proc/1 ]] || exit 1
+            [[ ${#processes[@]} -eq 2 && ${processes[0]} == /proc/1 && ${processes[1]} == /proc/2 ]] || exit 1
             while read -r key value rest; do
                 if [[ $key == Pid: ]]; then
-                    [[ $value -eq 1 ]] || exit 1
+                    [[ $value -eq 2 ]] || exit 1
                     exit 0
                 fi
             done < /proc/self/status

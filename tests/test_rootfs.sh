@@ -27,7 +27,7 @@ case "$test_case" in
             [[ -e /proc/1/status && -e /proc/self/mountinfo ]] || exit 1
             [[ $(readlink /proc/1/root) == / ]] || exit 1
             processes=(/proc/[0-9]*)
-            [[ ${#processes[@]} -eq 1 && ${processes[0]} == /proc/1 ]]'
+            [[ ${#processes[@]} -eq 2 && ${processes[0]} == /proc/1 && ${processes[1]} == /proc/2 ]]'
         ;;
     devices)
         "$runtime" run "$rootfs" /bin/bash -c '

@@ -1,5 +1,6 @@
 # === Kompilacja i Build (CMake / C++) ===
 build/
+build-linux/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

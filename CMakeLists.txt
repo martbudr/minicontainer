@@ -36,3 +36,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(minicontainer
         src/main.cpp
 )
+
+include(CTest)
+if(BUILD_TESTING)
+    find_program(BASH_EXECUTABLE bash REQUIRED)
+    foreach(test_case IN ITEMS basic_execution arguments exit_code invalid_executable invalid_invocation)
+        add_test(NAME milestone1.${test_case}
+            COMMAND "${BASH_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_process_execution.sh"
+                "$<TARGET_FILE:minicontainer>" "${test_case}")
+        set_tests_properties(milestone1.${test_case} PROPERTIES
+            LABELS "milestone1;process_execution"
+            TIMEOUT 10)
+    endforeach()
+endif()

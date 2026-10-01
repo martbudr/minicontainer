@@ -1,0 +1,49 @@
+# === Kompilacja i Build (CMake / C++) ===
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Binaria i pliki obiektowe
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.out
+
+# Plik wykonywalny projektu
+minicontainer
+
+# === macOS ===
+.DS_Store
+.apple-dns
+.apple-names
+.appledouble
+.lsfactorydefaults
+
+# === Edytory tekstowe i IDE ===
+# Vim / Neovim
+.*.swp
+.*.swo
+.*.un~
+Session.vim
+.netrwhist
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# CLion / JetBrains
+.idea/
+cmake-build-*/
+
+# === Logi i pliki tymczasowe ===
+*.log
+*.tmp

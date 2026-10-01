@@ -5,8 +5,14 @@ CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
-*.cmake
-!CMakeLists.txt
+CTestTestfile.cmake
+DartConfiguration.tcl
+Testing/
+compile_commands.json
+install_manifest.txt
+
+# Generated Linux filesystem
+/rootfs/
 
 # Binaria i pliki obiektowe
 *.o
@@ -48,3 +54,4 @@ cmake-build-*/
 # === Logi i pliki tymczasowe ===
 *.log
 *.tmp
+*~

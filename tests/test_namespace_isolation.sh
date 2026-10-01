@@ -11,17 +11,18 @@ fi
 
 runtime=$1
 test_case=$2
+rootfs=$3
 
 case "$test_case" in
     hostname)
-        actual=$("$runtime" run --hostname box /bin/hostname)
+        actual=$("$runtime" run --hostname box "$rootfs" /bin/hostname)
         [[ "$actual" == box ]]
         ;;
     pid1)
-        "$runtime" run /bin/bash -c '[[ $$ -eq 1 ]]'
+        "$runtime" run "$rootfs" /bin/bash -c '[[ $$ -eq 1 ]]'
         ;;
     proc)
-        "$runtime" run /bin/bash -c '
+        "$runtime" run "$rootfs" /bin/bash -c '
             processes=(/proc/[0-9]*)
             [[ ${#processes[@]} -eq 1 && ${processes[0]} == /proc/1 ]] || exit 1
             while read -r key value rest; do
@@ -35,19 +36,19 @@ case "$test_case" in
     namespaces)
         for namespace in pid uts mnt; do
             host_namespace=$(readlink "/proc/self/ns/$namespace")
-            child_namespace=$("$runtime" run /usr/bin/readlink "/proc/self/ns/$namespace")
+            child_namespace=$("$runtime" run "$rootfs" /usr/bin/readlink "/proc/self/ns/$namespace")
             [[ "$host_namespace" != "$child_namespace" ]]
         done
         ;;
     host_unchanged)
         hostname_before=$(hostname)
         mounts_before=$(cat /proc/self/mountinfo)
-        "$runtime" run --hostname box /bin/bash -c 'hostname changed-inside'
+        "$runtime" run --hostname box "$rootfs" /bin/bash -c 'hostname changed-inside'
         [[ $(hostname) == "$hostname_before" ]]
         [[ $(cat /proc/self/mountinfo) == "$mounts_before" ]]
         ;;
     invalid_hostname)
-        if "$runtime" run --hostname '' /bin/true; then
+        if "$runtime" run --hostname '' "$rootfs" /bin/true; then
             echo "Empty hostname unexpectedly accepted" >&2
             exit 1
         fi

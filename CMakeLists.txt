@@ -40,13 +40,19 @@ add_executable(minicontainer
 include(CTest)
 if(BUILD_TESTING)
     find_program(BASH_EXECUTABLE bash REQUIRED)
+    set(TEST_ROOTFS "${CMAKE_CURRENT_BINARY_DIR}/test-rootfs")
+    add_test(NAME rootfs.prepare COMMAND "${BASH_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/prepare_rootfs.sh"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/create_rootfs.sh" "${TEST_ROOTFS}")
+    set_tests_properties(rootfs.prepare PROPERTIES FIXTURES_SETUP rootfs TIMEOUT 30)
     foreach(test_case IN ITEMS basic_execution arguments exit_code invalid_executable invalid_invocation)
         add_test(NAME milestone1.${test_case}
             COMMAND "${BASH_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_process_execution.sh"
-                "$<TARGET_FILE:minicontainer>" "${test_case}")
+                "$<TARGET_FILE:minicontainer>" "${test_case}" "${TEST_ROOTFS}")
         set_tests_properties(milestone1.${test_case} PROPERTIES
             LABELS "milestone1;process_execution"
+            FIXTURES_REQUIRED rootfs
             SKIP_RETURN_CODE 77
             TIMEOUT 10)
     endforeach()
@@ -54,10 +60,19 @@ if(BUILD_TESTING)
         add_test(NAME milestone2.${test_case}
             COMMAND "${BASH_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_namespace_isolation.sh"
-                "$<TARGET_FILE:minicontainer>" "${test_case}")
+                "$<TARGET_FILE:minicontainer>" "${test_case}" "${TEST_ROOTFS}")
         set_tests_properties(milestone2.${test_case} PROPERTIES
             LABELS "milestone2;namespace_isolation"
+            FIXTURES_REQUIRED rootfs
             SKIP_RETURN_CODE 77
             TIMEOUT 10)
+    endforeach()
+    foreach(test_case IN ITEMS root cwd host_hidden proc devices invalid_rootfs)
+        add_test(NAME milestone3.${test_case} COMMAND "${BASH_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rootfs.sh"
+            "$<TARGET_FILE:minicontainer>" "${test_case}" "${TEST_ROOTFS}")
+        set_tests_properties(milestone3.${test_case} PROPERTIES
+            LABELS "milestone3;rootfs" FIXTURES_REQUIRED rootfs
+            SKIP_RETURN_CODE 77 TIMEOUT 10)
     endforeach()
 endif()

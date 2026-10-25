@@ -2,7 +2,8 @@
 
 #include <string>
 
-#include "cli.hpp"
+#include "config.hpp"
+#include <sys/types.h>
 
 class Cgroup {
 public:

@@ -34,7 +34,14 @@ add_executable(minicontainer
     src/main.cpp
     src/cli.cpp
     src/container.cpp
+    src/container_init.cpp
+    src/rootfs.cpp
+    src/process_signals.cpp
     src/cgroup.cpp
+    src/config.hpp
+    src/container_init.hpp
+    src/rootfs.hpp
+    src/process_signals.hpp
     src/cli.hpp
     src/container.hpp
     src/cgroup.hpp

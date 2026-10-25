@@ -1,4 +1,11 @@
 #include "cli.hpp"
+#include <cstdint>
+#include <limits>
+#include <stdexcept>
+#include <cmath>
+#include <iostream>
+
+namespace {
 
 // Parse digits only, detecting overflow.
 std::uint64_t parse_integer(const std::string& text) {
@@ -32,7 +39,7 @@ std::uint64_t parse_memory(std::string text) {
         case 'K': multiplier = 1024ULL; break;
         case 'M': multiplier = 1024ULL * 1024; break;
         case 'G': multiplier = 1024ULL * 1024 * 1024; break;
-        default: throw std::runtime_error("--memory must be not more than 1GB");
+        default: break;
     }
 
     if (multiplier != 1)
@@ -72,6 +79,8 @@ double parse_cpus(const std::string& text) {
     return value;
 }
 
+}
+
 Options parse_arguments(int argc, char* argv[]) {
     if (argc < 2 || std::string(argv[1]) != "run")
         throw std::runtime_error("expected the 'run' subcommand");
@@ -105,16 +114,16 @@ Options parse_arguments(int argc, char* argv[]) {
 
             options.hostname = value;
         } else if (option == "--memory") {
-            options.limits.memory = parse_memory(value);
+            options.limits.memory = std::to_string(parse_memory(value));
         } else if (option == "--cpus") {
-            options.limits.cpus = parse_cpus(value);
+            options.limits.cpus = std::to_string(static_cast<unsigned long long>(std::llround(parse_cpus(value) * 100000))) + " 100000";
         } else {
             auto count = parse_integer(value);
 
             if (count < 2 || count > 2147483647ULL)
                 throw std::runtime_error("--pids must be between 2 and 2147483647");
 
-            options.limits.pids = static_cast<int>(count);
+            options.limits.pids = std::to_string(count);
         }
     }
 
@@ -127,4 +136,10 @@ Options parse_arguments(int argc, char* argv[]) {
         options.command.emplace_back(argv[i++]);
 
     return options;
+}
+
+void print_usage(const char* program_name) {
+    std::cerr << "usage: " << program_name
+              << " run [--hostname <name>] [--memory <bytes|K|M|G>]"
+              << " [--cpus <count>] [--pids <count>] <rootfs> <command> [args...]\n";
 }

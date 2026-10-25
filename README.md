@@ -1,122 +1,57 @@
 # minicontainer
 
-`minicontainer` is a small Linux container runtime written in C++20. It launches
-a command with its own process tree, hostname, mount namespace, and root
-filesystem, then supervises its lifetime and optionally limits memory, CPU,
-and process usage through cgroups v2.
-
-The project is built in milestones to make the underlying Linux mechanisms
-visible. It uses system calls directly rather than Docker, containerd, an OCI
-runtime, or a container-management library. It is an educational runtime for
-trusted workloads, not a production sandbox.
-
-```bash
-sudo ./build/minicontainer run \
-    --hostname box --memory 256M --cpus 0.5 --pids 64 \
-    ./rootfs /bin/bash
-```
-
-## Features
-
-| Area | Implementation |
-| --- | --- |
-| Processes | PID namespace, PID 1 supervisor, command execution with `execve()` |
-| Hostname | UTS namespace with a configurable hostname |
-| Mounts | Private mount namespace and propagation, container-specific `/proc` |
-| Filesystem | Separate rootfs entered with `chroot()`, fresh `/dev` and `/dev/pts` |
-| Resources | cgroups v2 memory, CPU bandwidth, and PID/thread limits |
-| Lifecycle | SIGINT/SIGTERM forwarding, orphan reaping, forced shutdown, exit-code propagation |
-| Cleanup | Descendant termination, namespace mount teardown, cgroup deletion |
-| Tests | CTest suites for each completed milestone |
-
-There is one command, `run`. There is no daemon, image registry, image format,
-container database, or separate `start`, `stop`, or `exec` interface.
+A small Linux container runtime written in C++20 using Linux system calls directly.
+It runs a command in PID, UTS, and mount namespaces, provides a separate rootfs,
+and optionally limits resources through cgroups v2. An educational project for
+trusted workloads; it is not a production sandbox.
 
 ## Requirements
 
-- A Linux build host and Linux target. CMake deliberately rejects other systems,
-  including cross-compilation from macOS.
-- Linux 5.14 or newer, with PID/UTS/mount namespaces, cgroups v2, `pidfd_open`,
-  and `cgroup.kill` available.
-- Root privileges at runtime for namespaces, mounts, `chroot()`, and cgroup setup.
-- A writable cgroup v2 hierarchy at `/sys/fs/cgroup`. Requested resource
-  controllers must be available there.
-- CMake 3.20 or newer, a C++20 compiler, and a build tool such as Make or Ninja.
-- Bash, GNU coreutils, `ldd`, `hostname`, and `ps` for the rootfs helper and tests.
+- Linux 5.14+ with PID/UTS/mount namespaces, `pidfd_open`, and `cgroup.kill`.
+- Root privileges and a writable cgroups v2 hierarchy at `/sys/fs/cgroup`,
+  with the requested resource controllers available.
+- CMake 3.20+, a C++20 compiler, and Make or Ninja.
 
-The documented rootfs workflow has been exercised on Ubuntu in Lima on an
-Apple Silicon Mac. The helper copies Linux executables and their libraries
-from the machine where it runs, so the rootfs must match the guest architecture.
+Build and run inside Linux. On macOS, use a Linux VM such as Lima.
 
 ## Quick Start on Linux
 
-From a checkout of this project, install dependencies. For Ubuntu/Debian:
+Install dependencies on Ubuntu/Debian, then build:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential cmake procps hostname coreutils libc-bin
-```
-
-Build the runtime:
-
-```bash
 cmake -S . -B build
 cmake --build build
 ```
 
-Create a rootfs once, then execute a command:
+Create a minimal rootfs and run a command:
 
 ```bash
 bash scripts/create_rootfs.sh ./rootfs
 sudo ./build/minicontainer run ./rootfs /bin/echo hello
 ```
 
-Expected output is `hello`, with exit code `0`. The rootfs helper refuses to
-overwrite an existing path. Reuse an existing rootfs or choose a new directory
-when rebuilding it.
+Expected output: `hello`, exit code `0`. The helper copies host Linux binaries
+and their libraries and refuses to overwrite an existing path. Reuse your rootfs
+on later runs. Custom executables need their loaders and libraries inside it.
 
 ## Development on macOS with Lima
 
-The runtime executes inside Linux; Lima provides that Linux VM. Install Lima
-on macOS with Homebrew, following the [Lima installation guide](https://lima-vm.io/docs/installation/):
+From the project directory on your Mac:
 
 ```bash
 brew install lima
-```
-
-From the project directory on your Mac, create a VM if you do not already have
-one named `minicontainer`:
-
-```bash
 limactl start --name=minicontainer --vm-type=vz \
     --cpus=2 --memory=2 --disk=10 --containerd=none \
     --mount-only="$(pwd -P):w" --yes template:ubuntu
-```
-
-This shares only the project directory, writable, at the same path inside the
-VM. For an existing VM, start it with `limactl start minicontainer` instead.
-Enter it from your Mac's project directory:
-
-```bash
 limactl shell --workdir="$(pwd -P)" minicontainer
 ```
 
-Inside the VM, install the Linux dependencies shown above, then build and run:
-
-```bash
-cmake -S . -B build-linux
-cmake --build build-linux
-bash scripts/create_rootfs.sh ./rootfs
-sudo ./build-linux/minicontainer run --hostname box ./rootfs /bin/bash
-```
-
-Skip rootfs creation if `./rootfs` already exists. Use a separate Linux build
-directory to avoid mixing compiler caches and binaries with native macOS builds.
-You can edit sources on your Mac and rebuild inside the VM. To stop the VM,
-exit its shell and run `limactl stop minicontainer` on macOS.
-
-The rest of this README uses `build`; substitute `build-linux` for the Lima
-workflow.
+For an existing VM, use `limactl start minicontainer` instead of creating one.
+Inside the VM, follow the Linux Quick Start. Sources are shared with the Mac;
+use a fresh Linux build directory if an existing one contains a macOS CMake cache.
+Exit the VM shell and run `limactl stop minicontainer` on macOS to stop it.
 
 ## Command-Line Interface
 
@@ -126,288 +61,119 @@ minicontainer run [options] <rootfs> <command> [args...]
 
 | Option | Accepted values | Default |
 | --- | --- | --- |
-| `--hostname` | A nonempty name of at most 64 bytes | `minicontainer` |
-| `--memory` | Positive integer bytes, optionally followed by uppercase `K`, `M`, or `G` | No explicit limit |
-| `--cpus` | Decimal CPU count from `0.01` to `1024` | No explicit limit |
-| `--pids` | Integer from `2` to `2147483647` | No explicit limit |
+| `--hostname` | Nonempty name, at most 64 bytes | `minicontainer` |
+| `--memory` | Positive bytes, optionally suffixed with `K`, `M`, or `G` | No explicit limit |
+| `--cpus` | Decimal CPU count, `0.01`–`1024` | No explicit limit |
+| `--pids` | Integer, `2`–`2147483647` | No explicit limit |
 
-Options must precede the rootfs. An optional `--` ends option parsing. Arguments
-after the command are passed to the program unchanged; shell syntax is interpreted
-only when you explicitly run a shell.
+Options precede the rootfs; `--` ends option parsing. The rootfs must be an
+existing host directory other than `/`, with real, nonsymlink `proc` and `dev`
+directories. Commands resolve inside it, starting from `/`, with no `PATH`
+search. Arguments and the runtime's environment are passed to the command;
+shell syntax requires an explicit shell.
 
-The rootfs path is resolved on the Linux host. It must be an existing directory
-other than `/`, containing real, nonsymlink `proc` and `dev` directories.
-The command path is resolved **inside** the rootfs. Commands are executed with
-`execve()`, so there is no `PATH` search: use `/bin/bash`, not just `bash`.
-Relative paths resolve from the container's initial working directory, `/`.
-The command inherits the environment passed to the runtime; with `sudo`, that
-means the environment permitted by your sudo configuration.
-
-### Examples
-
-Pass arguments and inspect a command's exit code:
-
-```bash
-sudo ./build/minicontainer run ./rootfs /bin/echo hello world
-sudo ./build/minicontainer run ./rootfs /bin/sh -c 'exit 42'
-echo "$?"
-```
-
-Open an isolated shell:
-
-```bash
-sudo ./build/minicontainer run --hostname box ./rootfs /bin/bash
-```
-
-Inside that shell:
-
-```bash
-hostname    # box
-pwd         # /
-ls /        # rootfs directories, not the host's root directory
-ps aux      # PID 1 supervisor, shell, and commands started inside the container
-```
-
-Apply resource limits:
+Open a shell with resource limits:
 
 ```bash
 sudo ./build/minicontainer run \
-    --memory 256M --cpus 0.5 --pids 64 \
+    --hostname box --memory 256M --cpus 0.5 --pids 64 \
     ./rootfs /bin/bash
 ```
 
-To run your own Linux executable, put it in the rootfs first:
+Inside, `hostname` shows `box`, `pwd` shows `/`, and `ps aux` shows the container's
+processes. To check exit-code propagation:
 
 ```bash
-cp ./program ./rootfs/bin/program
-sudo ./build/minicontainer run ./rootfs /bin/program
+sudo ./build/minicontainer run ./rootfs /bin/sh -c 'exit 42'
+echo "$?"  # 42
 ```
-
-If it is dynamically linked, also copy its loader and shared libraries to their
-expected paths inside the rootfs. Inspect those dependencies with `ldd ./program`.
-The rootfs helper's copy procedure is a useful reference. Only run `ldd` on
-executables you trust.
 
 ## Architecture
 
-```text
-Linux host
-  |
-  +-- minicontainer parent
-  |     validate arguments and rootfs
-  |     create cgroup and configure limits
-  |     clone namespace child
-  |     attach child to cgroup, then release startup gate
-  |     forward signals, wait, and delete cgroup
-  |
-  +-- namespace child: PID 1 supervisor
-        set hostname and make mount propagation private
-        bind mount rootfs, chroot, and change directory to /
-        mount proc, tmpfs /dev, and a new devpts instance
-        fork command and supervise its lifetime
-          |
-          +-- command: normally PID 2
-                execve(command, arguments, environment)
-                descendants remain in the same cgroup and namespaces
-```
+1. The host runtime creates a cgroup and uses `clone()` to create a child in
+   new PID, UTS, and mount namespaces.
+2. The child waits on a startup pipe until the host attaches it to the cgroup.
+3. As container PID 1, it sets the hostname, makes mounts private, enters the
+   rootfs with `chroot()`, and mounts fresh `/proc`, `/dev`, and `/dev/pts`.
+4. PID 1 forks the command, which calls `execve()`. It stays alive to forward
+   signals and reap exited children, including adopted orphans.
+5. The host supervises PID 1 and removes the cgroup after termination.
 
-### Why These Choices?
+Both supervisors consume signals through `signalfd()`. Standard streams are
+inherited. The rootfs remains writable and persistent after exit; namespace
+mounts disappear when the namespace is destroyed.
 
-**`clone()` creates the container boundary.** `CLONE_NEWPID`, `CLONE_NEWUTS`, and
-`CLONE_NEWNS` give the namespace child separate process IDs, hostname state,
-and mount state. This is still ordinary Linux process execution, not a separate
-kernel or full virtual machine.
+## Resource Limits and Shutdown
 
-**A supervisor owns PID 1.** Namespace PID 1 has special signal and orphan-handling
-responsibilities. Keeping it in the runtime allows arbitrary commands to run
-without needing to implement init behavior themselves. The supervisor uses
-`fork()` to create the workload, then `execve()` to replace that child with the
-requested program. It reaps adopted descendants with `waitpid()`.
+- **Memory:** suffixes use powers of 1024. A limit disables cgroup swap and
+  enables group OOM killing.
+- **CPU:** bandwidth across all threads, using a 100 ms period. `--cpus 0.5`
+  allows 50 ms of aggregate CPU time per period, without pinning CPUs.
+- **PIDs:** counts threads as well as processes; PID 1 and the command use two slots.
 
-**`chroot()` is the current filesystem step.** The rootfs is bind-mounted in the
-private mount namespace and becomes the process's root, followed by `chdir("/")`.
-It is writable and persistent: files created inside it remain after exit.
-There is no overlay or automatic rootfs reset. Replacing `chroot()` with
-`pivot_root()` and detaching the old root is planned, not implemented.
+Each run creates a cgroup even without explicit limits. Ancestor restrictions
+still apply. Requested controllers may be enabled at the hierarchy root;
+that enablement remains after cleanup.
 
-**`/proc` must be remounted.** A fresh proc filesystem reflects the new PID
-namespace. Mount propagation is made recursively private first so these mounts
-do not propagate back to the host. `/dev` uses a small tmpfs with basic character
-devices and a separate devpts instance; the host's `/dev` is not bind-mounted.
-Standard streams are inherited, without a runtime-managed console or PTY proxy.
+SIGINT/SIGTERM is forwarded through PID 1 to the workload. A second shutdown
+signal or a two-second timeout forces termination. When the main command exits,
+PID 1 exits and Linux kills remaining namespace processes. Parent-death
+protection also kills PID 1 if the host runtime dies, though an empty cgroup
+may remain after an abrupt host-runtime exit.
 
-**Cgroup membership precedes setup.** The namespace child waits on a pipe until
-the parent has attached it to the cgroup. Rootfs setup and subsequently forked
-workloads are therefore accounted to the same group. The runtime creates a
-unique `/sys/fs/cgroup/minicontainer-<host-pid>-<suffix>` directory for each run,
-even when no resource limit is supplied.
-
-**Signals are consumed through `signalfd()`.** Blocking SIGINT, SIGTERM, and
-SIGCHLD lets the parent and supervisor handle them through polling loops.
-PID 1 also installs signal handlers so Linux accepts its termination signals.
-The workload restores default signal handling before `execve()`.
-
-## Resource-Limit Semantics
-
-Memory suffixes use powers of 1024: `256M` means 268435456 bytes. `--memory`
-writes `memory.max`, disables swap for the group with `memory.swap.max=0`, and
-sets `memory.oom.group=1` so an OOM event kills the group together.
-
-CPU limits use `cpu.max` with a 100 ms period. `--cpus 0.5` permits 50 ms of
-aggregate CPU time per period across the group's threads. This is bandwidth
-control, not CPU pinning or a guarantee of CPU time under host contention; short
-bursts within a period are possible.
-
-PID limits use `pids.max` and count threads as well as processes. The supervisor
-and initial command consume two slots, so `--pids 8` leaves room for six more
-single-threaded processes. Further forks or thread creation fail when the limit
-is reached.
-
-Omitted limits retain kernel defaults and inherit any ancestor restrictions.
-Requested controllers are enabled in the cgroup hierarchy root when necessary;
-that controller enablement remains after the run. Per-run cgroup directories
-are removed during cleanup. This direct hierarchy-management approach is for
-development, not integration with a production service manager.
-
-These settings follow the [kernel cgroup v2 interfaces](https://docs.kernel.org/admin-guide/cgroup-v2.html).
-
-## Shutdown and Exit Codes
-
-The parent forwards the first SIGINT or SIGTERM to the supervisor, which signals
-the namespace's other processes. It allows two seconds for shutdown. A second
-shutdown signal, or expiry of that deadline, immediately kills the entire cgroup.
-When the main command exits normally, PID 1 exits too; Linux terminates any
-remaining processes in that PID namespace. The parent waits for PID 1 and
-removes the cgroup. Private mounts disappear with the namespace; the rootfs
-directory and its contents are retained.
-
-| Outcome | Runtime exit code |
+| Outcome | Exit code |
 | --- | --- |
-| Command exits normally | Command's exit code |
-| Command dies from a signal | `128 + signal number` |
-| Runtime receives SIGINT | `130` |
-| Runtime receives SIGTERM | `143` |
-| Whole-group OOM SIGKILL | Typically `137` |
-| Executable cannot be started | `127` |
+| Command exits | Command's exit code |
+| Command killed by signal | `128 + signal number` |
+| Runtime receives SIGINT / SIGTERM | `130` / `143` |
+| Executable cannot start | `127` |
 | Argument, setup, or cleanup error | `1` |
 
-Runtime-requested shutdown reports `130` or `143` even if the command handles
-the signal and returns a different status. A cleanup error can override the
-command's status with `1`.
+Runtime shutdown codes override the command's result; cleanup errors can return `1`.
 
-SIGKILL cannot execute cleanup code. Parent-death signaling kills the supervisor
-if the host runtime dies; a pidfd check covers death before that protection was
-installed. Container processes stop, but an empty cgroup directory may remain.
-Inspect the specific directory before manually removing it with `sudo rmdir`;
-do not delete groups belonging to active runs.
+## Project Structure
 
-## Tests
-
-Build first, then use the same interface as the project grows:
-
-```bash
-ctest --test-dir build --output-on-failure
-```
-
-CTest prepares a separate `build/test-rootfs` fixture. It does not require or
-modify your manually created `./rootfs`. The fixture copies the test workload
-and its dependencies into its own filesystem.
-
-Privileged tests use passwordless sudo when available. Without it, those tests
-are marked skipped, not passed. To execute them with an interactive sudo prompt:
-
-```bash
-sudo ctest --test-dir build --output-on-failure
-```
-
-| Milestone | Coverage |
+| Files | Responsibility |
 | --- | --- |
-| 1: Process execution | Output, arguments, exit status, invalid executable, usage |
-| 2: Namespaces | Hostname, PID 1 supervisor relationship, private proc, namespace identities, unchanged host state |
-| 3: Rootfs | Container root and working directory, hidden host paths, proc, devices, invalid rootfs |
-| 4: Control | Limit settings, actual CPU/memory/PID pressure, signals, escalation, parent death, orphan reaping, descendant and error cleanup |
+| `src/main.cpp`, `src/cli.*`, `src/config.hpp` | Entry point, parsing, shared configuration |
+| `src/container.*` | Host-side startup, supervision, cleanup |
+| `src/container_init.*` | Container setup and PID 1 supervision |
+| `src/rootfs.*` | Rootfs validation, mounts, devices |
+| `src/cgroup.*` | Resource limits and cgroup management |
+| `src/process_signals.*` | Signal and exit-status helpers |
+| `src/setup_error.cpp` | Inline fatal setup-error helper |
+| `scripts/create_rootfs.sh` | Minimal rootfs preparation |
+| `CMakeLists.txt`, `Makefile` | Linux build configuration |
 
-The suite currently registers 31 checks, including fixture preparation. Select a
-milestone with its label:
-
-```bash
-ctest --test-dir build -L milestone4 --output-on-failure
-```
-
-To build only the runtime without registering tests:
-
-```bash
-cmake -S . -B build -DBUILD_TESTING=OFF
-cmake --build build
-```
-
-## Project Layout
-
-```text
-CMakeLists.txt                     Linux checks, build targets, CTest registration
-src/main.cpp                       CLI, namespaces, rootfs mounts, startup coordination
-src/control.h                      Resource and lifecycle interfaces
-src/control.cpp                    Cgroup configuration, signals, supervision, cleanup
-scripts/create_rootfs.sh            Minimal rootfs preparation from trusted host binaries
-tests/prepare_rootfs.sh             CTest filesystem fixture
-tests/test_process_execution.sh     Milestone 1 checks
-tests/test_namespace_isolation.sh   Milestone 2 checks
-tests/test_rootfs.sh                Milestone 3 checks
-tests/test_control.sh               Milestone 4 checks
-tests/workload.cpp                 Controlled resource and lifecycle test programs
-```
-
-Build directories, generated rootfs contents, editor metadata, and temporary
-files are ignored by Git. The scripts and tests that recreate them are tracked.
+No automated test suite is currently included or registered with CMake.
 
 ## Troubleshooting
 
-| Symptom | What to check |
+| Problem | Check |
 | --- | --- |
-| CMake rejects macOS or another platform | Configure inside Linux, such as the Lima VM; do not reuse a macOS build cache. |
-| Namespace creation requires root | Run the runtime with `sudo` inside Linux. |
-| `clone()` or mount setup fails with permission denied | The environment may restrict namespaces or mount capabilities, even for root. Use a Linux VM rather than a restricted nested container. |
-| Cgroup creation or controller writes fail | Check `/sys/fs/cgroup/cgroup.controllers`, writable cgroup v2 access, and controller availability. |
-| `cgroup.kill` is required | Use a kernel/environment exposing this interface; Linux 5.14+ is required by this runtime. |
-| Rootfs helper refuses an existing path | Reuse that rootfs or choose a new destination. It never overwrites an existing rootfs. |
-| `execve` reports no such file for an existing executable | Check the path inside the rootfs, its ELF loader, shared libraries, or script interpreter. |
-| A command such as `sleep` is unavailable | The generated rootfs contains only the small tool set copied by the helper. Add the executable and its dependencies yourself. |
-| Tests are skipped | Run CTest as root or provide passwordless sudo in the development VM. |
+| CMake rejects the platform | Build inside Linux with a Linux CMake cache. |
+| Namespace or mount permission denied | Run with `sudo`; restricted containers may require using a Linux VM instead. |
+| Cgroup setup fails | Check writable cgroups v2 access, controller availability, and `cgroup.kill`. |
+| Existing executable reports “no such file” | Check its in-rootfs path, ELF loader, libraries, or script interpreter. |
 
 ## Limitations and Next Steps
 
-This runtime runs the workload as privileged root. It does not drop Linux
-capabilities, create a user namespace, apply seccomp, or close every inherited
-host file descriptor. [The Linux `chroot()` manual](https://man7.org/linux/man-pages/man2/chroot.2.html)
-explains why changing the root directory alone is not a security boundary.
-Do not run untrusted programs in this runtime.
+Workloads run as privileged root, with no capability dropping, user namespace,
+seccomp, or comprehensive inherited-descriptor cleanup. `chroot()` alone is
+not a security boundary: **do not run untrusted programs**.
 
-Network and IPC namespaces are not created. The workload shares the host's
-network and IPC namespaces; in Lima, that host is the Linux VM. There is no
-resource limit for disk space or I/O, no read-only rootfs, no image management,
-and no production-grade cgroup delegation. The minimal rootfs is not a complete
-distribution: it has no package manager, DNS setup, or general application stack.
+Network and IPC namespaces are shared with the Linux host. There is no disk/I/O
+limit, overlay filesystem, image management, daemon, or managed console.
+Programs and DNS configuration depend on the supplied rootfs.
 
-Future work includes `pivot_root()` with old-root detachment, capability and
-descriptor restrictions, seccomp, network isolation, and more complete rootfs
-and console handling. These are roadmap items, not current features.
-
-## Contributing
-
-Keep changes focused on a milestone, add behavior-level coverage to CTest, and
-run the relevant privileged tests in Linux. Preserve the `run` interface and
-document changes to its options, privilege requirements, or cleanup behavior.
-
-## License
-
-No project license file is currently included.
+Planned improvements include `pivot_root()` with old-root detachment, capability
+and descriptor restrictions, seccomp, and network isolation.
 
 ## References
 
-- [Linux cgroup v2 documentation](https://docs.kernel.org/admin-guide/cgroup-v2.html)
+- [cgroups v2](https://docs.kernel.org/admin-guide/cgroup-v2.html)
 - [PID namespaces](https://man7.org/linux/man-pages/man7/pid_namespaces.7.html)
 - [`clone()`](https://man7.org/linux/man-pages/man2/clone.2.html)
 - [`chroot()`](https://man7.org/linux/man-pages/man2/chroot.2.html)
-- [`pivot_root()`](https://man7.org/linux/man-pages/man2/pivot_root.2.html)
 - [`signalfd()`](https://man7.org/linux/man-pages/man2/signalfd.2.html)
 - [Lima usage](https://lima-vm.io/docs/usage/)

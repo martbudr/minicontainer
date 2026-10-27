@@ -14,44 +14,69 @@ trusted workloads; it is not a production sandbox.
 
 Build and run inside Linux. On macOS, use a Linux VM such as Lima.
 
-## Quick Start on Linux
+## Build and Run
 
-Install dependencies on Ubuntu/Debian, then build:
+Run these commands from the project directory inside Linux.
+
+### Build
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y build-essential cmake procps hostname coreutils libc-bin
 cmake -S . -B build
 cmake --build build
 ```
 
-Create a minimal rootfs and run a command:
+### Run with the Example Rootfs
+
+`rootfs/` is generated locally and is not included in the repository. If it is
+missing after cloning, prepare it inside Linux:
 
 ```bash
 bash scripts/create_rootfs.sh ./rootfs
+```
+
+Use the existing `./rootfs` to run a command:
+
+```bash
 sudo ./build/minicontainer run ./rootfs /bin/echo hello
 ```
 
-Expected output: `hello`, exit code `0`. The helper copies host Linux binaries
-and their libraries and refuses to overwrite an existing path. Reuse your rootfs
-on later runs. Custom executables need their loaders and libraries inside it.
-
-## Development on macOS with Lima
-
-From the project directory on your Mac:
+Expected output: `hello`, exit code `0`. To open an interactive shell:
 
 ```bash
-brew install lima
-limactl start --name=minicontainer --vm-type=vz \
-    --cpus=2 --memory=2 --disk=10 --containerd=none \
-    --mount-only="$(pwd -P):w" --yes template:ubuntu
-limactl shell --workdir="$(pwd -P)" minicontainer
+sudo ./build/minicontainer run ./rootfs /bin/bash
 ```
 
-For an existing VM, use `limactl start minicontainer` instead of creating one.
-Inside the VM, follow the Linux Quick Start. Sources are shared with the Mac;
-use a fresh Linux build directory if an existing one contains a macOS CMake cache.
-Exit the VM shell and run `limactl stop minicontainer` on macOS to stop it.
+Run `exit` to leave the container.
+
+### Customize the Run
+
+Set a hostname and resource limits before the rootfs path:
+
+```bash
+sudo ./build/minicontainer run \
+    --hostname box --memory 256M --cpus 0.5 --pids 64 \
+    ./rootfs /bin/bash
+```
+
+Inside, `hostname` shows `box`, `pwd` shows `/`, and `ps aux` shows the container's
+processes. See [Command-Line Interface](#command-line-interface) for all options.
+
+Replace `./rootfs` to use another rootfs, or `/bin/bash` to run another command.
+Executables, their loaders, and libraries must exist inside the chosen rootfs;
+changes to its files persist after exit.
+
+### Create Another Rootfs
+
+Inside Linux, run the helper with a destination that does not already exist.
+It copies a small set of host executables and their loaders and shared libraries:
+
+```bash
+bash scripts/create_rootfs.sh ./my-rootfs
+sudo ./build/minicontainer run ./my-rootfs /bin/bash
+```
+
+To add programs later, copy their executables and required libraries into the
+corresponding paths inside the rootfs.
 
 ## Command-Line Interface
 
@@ -72,21 +97,43 @@ directories. Commands resolve inside it, starting from `/`, with no `PATH`
 search. Arguments and the runtime's environment are passed to the command;
 shell syntax requires an explicit shell.
 
-Open a shell with resource limits:
-
-```bash
-sudo ./build/minicontainer run \
-    --hostname box --memory 256M --cpus 0.5 --pids 64 \
-    ./rootfs /bin/bash
-```
-
-Inside, `hostname` shows `box`, `pwd` shows `/`, and `ps aux` shows the container's
-processes. To check exit-code propagation:
+To check exit-code propagation:
 
 ```bash
 sudo ./build/minicontainer run ./rootfs /bin/sh -c 'exit 42'
 echo "$?"  # 42
 ```
+
+## Tests
+
+Build first, then run the Linux integration suite:
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+CTest prepares a separate `build/test-rootfs` fixture without modifying `./rootfs`.
+Tests require the runtime's Linux/root/cgroups prerequisites. Privileged checks
+use passwordless sudo or are marked skipped if unavailable. To allow a sudo prompt:
+
+```bash
+sudo ctest --test-dir build --output-on-failure
+```
+
+| Script (`tests/`) | Coverage |
+| --- | --- |
+| `test_process_execution.sh` | Output, arguments, exit codes, missing executable, invalid invocation |
+| `test_namespace_isolation.sh` | Hostname, PID 1 supervision, isolated proc and namespaces, unchanged host state |
+| `test_rootfs.sh` | Root and working directory, hidden host paths, proc, devices, invalid rootfs |
+| `test_control.sh` | Resource limits under load, signal forwarding, forced shutdown, parent death, orphan reaping, process and cgroup cleanup |
+
+Run only the control tests:
+
+```bash
+ctest --test-dir build -L milestone4 --output-on-failure
+```
+
+To omit tests when configuring, use `-DBUILD_TESTING=OFF`.
 
 ## Architecture
 
@@ -135,17 +182,16 @@ Runtime shutdown codes override the command's result; cleanup errors can return 
 
 | Files | Responsibility |
 | --- | --- |
-| `src/main.cpp`, `src/cli.*`, `src/config.hpp` | Entry point, parsing, shared configuration |
-| `src/container.*` | Host-side startup, supervision, cleanup |
-| `src/container_init.*` | Container setup and PID 1 supervision |
-| `src/rootfs.*` | Rootfs validation, mounts, devices |
-| `src/cgroup.*` | Resource limits and cgroup management |
-| `src/process_signals.*` | Signal and exit-status helpers |
-| `src/setup_error.cpp` | Inline fatal setup-error helper |
-| `scripts/create_rootfs.sh` | Minimal rootfs preparation |
-| `CMakeLists.txt`, `Makefile` | Linux build configuration |
-
-No automated test suite is currently included or registered with CMake.
+| [main.cpp](src/main.cpp), [cli.cpp](src/cli.cpp), [config.hpp](src/config.hpp) | Entry point, parsing, shared configuration |
+| [container.cpp](src/container.cpp) | Host-side startup, supervision, cleanup |
+| [container_init.cpp](src/container_init.cpp) | Container setup and PID 1 supervision |
+| [rootfs.cpp](src/rootfs.cpp) | Rootfs validation, mounts, devices |
+| [cgroup.cpp](src/cgroup.cpp) | Resource limits and cgroup management |
+| [process_signals.cpp](src/process_signals.cpp) | Signal and exit-status helpers |
+| [setup_error.cpp](src/setup_error.cpp) | Inline fatal setup-error helper |
+| [create_rootfs.sh](scripts/create_rootfs.sh) | Minimal rootfs preparation |
+| [tests/](tests/) | Integration checks, test workload, and test-rootfs preparation |
+| [CMakeLists.txt](CMakeLists.txt) | Build and CTest configuration |
 
 ## Troubleshooting
 
@@ -168,6 +214,14 @@ Programs and DNS configuration depend on the supplied rootfs.
 
 Planned improvements include `pivot_root()` with old-root detachment, capability
 and descriptor restrictions, seccomp, and network isolation.
+
+## macOS Development (Optional)
+
+Use a Linux VM such as [Lima](https://lima-vm.io/docs/usage/) to build and run
+this project on macOS. Make the project directory writable inside the VM, then
+follow [Build and Run](#build-and-run) from its Linux shell. Use a separate Linux
+build directory if `build/` contains a macOS CMake cache, and prepare the rootfs
+inside the VM so its executables match the Linux environment.
 
 ## References
 

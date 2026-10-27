@@ -57,3 +57,49 @@ target_include_directories(minicontainer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/sr
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(minicontainer PRIVATE -Wall -Wextra)
 endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    find_program(BASH_EXECUTABLE bash REQUIRED)
+
+    add_executable(test_workload tests/workload.cpp)
+    target_compile_features(test_workload PRIVATE cxx_std_20)
+    set_target_properties(test_workload PROPERTIES CXX_EXTENSIONS OFF)
+
+    set(test_rootfs "${CMAKE_CURRENT_BINARY_DIR}/test-rootfs")
+    add_test(NAME prepare_test_rootfs
+        COMMAND "${BASH_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/prepare_rootfs.sh"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/create_rootfs.sh"
+            "${test_rootfs}" "$<TARGET_FILE:test_workload>")
+    set_tests_properties(prepare_test_rootfs PROPERTIES
+        FIXTURES_SETUP test_rootfs
+        TIMEOUT 60)
+
+    function(add_runtime_tests script label)
+        foreach(test_case IN LISTS ARGN)
+            set(test_name "${label}_${test_case}")
+            add_test(NAME "${test_name}"
+                COMMAND "${BASH_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/${script}"
+                    "$<TARGET_FILE:minicontainer>" "${test_case}" "${test_rootfs}")
+            set_tests_properties("${test_name}" PROPERTIES
+                FIXTURES_REQUIRED test_rootfs
+                LABELS "${label}"
+                SKIP_RETURN_CODE 77
+                TIMEOUT 30
+                # Shared rootfs mounts and host-wide cgroup checks must not overlap.
+                RESOURCE_LOCK minicontainer_integration)
+        endforeach()
+    endfunction()
+
+    add_runtime_tests(test_process_execution.sh milestone1
+        basic_execution arguments exit_code invalid_executable invalid_invocation)
+    add_runtime_tests(test_namespace_isolation.sh milestone2
+        hostname pid1 proc namespaces host_unchanged invalid_hostname)
+    add_runtime_tests(test_rootfs.sh milestone3
+        root cwd host_hidden proc devices invalid_rootfs)
+    add_runtime_tests(test_control.sh milestone4
+        limits cpu memory pids sigint sigterm escalation parent_death zombies
+        descendants signal_exit invalid_limits startup_failure)
+endif()
